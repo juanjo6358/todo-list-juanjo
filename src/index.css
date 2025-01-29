@@ -2,4 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Puedes agregar estilos globales o override aquí si lo deseas. */
+/* Ajustes básicos para iOS */
+html {
+  -webkit-tap-highlight-color: transparent;
+  height: 100vh;
+}
+
+body {
+  min-height: 100vh;
+  overflow: auto;
+  /* Prevenir el rebote en iOS de manera más compatible */
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+/* Mejorar la legibilidad del texto */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevenir el zoom no deseado en inputs en iOS */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Ocultar scrollbars de manera más compatible */
+* {
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* Contenedor principal con scroll */
+.app-container {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-tap-highlight-color: transparent;
+}

@@ -10,7 +10,6 @@ import {
 } from './components/ui/select';
 import { HoverSelect as Select } from './components/ui/hover-select';
 import {
-  Trash2,
   CheckCircle,
   Edit3,
   Filter,
@@ -18,14 +17,10 @@ import {
   SortDesc,
   Moon,
   Sun,
-  Download,
-  Upload,
-  Undo2,
-  Redo2,
+  Trash2,
 } from 'lucide-react';
 import { Dialog, DialogContent } from './components/ui/dialog';
 import clsx from 'clsx';
-import * as XLSX from 'xlsx';
 import { db } from './db/database';
 import {
   AlertDialog,
@@ -63,10 +58,6 @@ function App() {
 
   // Añade este estado
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
-
-  // Añade estos estados
-  const [history, setHistory] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(-1);
 
   // LOAD tasks, categories & theme from localStorage on first render
   useEffect(() => {
@@ -116,7 +107,6 @@ function App() {
       const id = await db.tasks.add(newTask);
       const updatedTasks = [...tasks, { ...newTask, id }];
       setTasks(updatedTasks);
-      updateHistory(updatedTasks);
       
       setTaskText('');
       setPriority('medium');
@@ -130,7 +120,6 @@ function App() {
       await db.tasks.delete(id);
       const updatedTasks = tasks.filter(task => task.id !== id);
       setTasks(updatedTasks);
-      updateHistory(updatedTasks);
     } catch (error) {
       console.error('Error al eliminar tarea:', error);
     }
@@ -144,7 +133,6 @@ function App() {
         task.id === id ? { ...task, completed: !task.completed } : task
       );
       setTasks(updatedTasks);
-      updateHistory(updatedTasks);
     } catch (error) {
       console.error('Error al actualizar tarea:', error);
     }
@@ -288,157 +276,63 @@ function App() {
   // En el JSX, reemplazamos las variables directas por la función
   const { total: totalTasks, completed: completedTasks, percentage: completionPercentage } = getProgressStats();
 
-  // Export tasks to Excel
-  const exportToExcel = async () => {
-    try {
-      // Obtener todas las tareas de la base de datos
-      const tasksToExport = await db.tasks.toArray();
-      
-      // Formatear los datos para Excel
-      const formattedTasks = tasksToExport.map(task => ({
-        Texto: task.text,
-        Prioridad: task.priority === 'high' ? 'Alta' : task.priority === 'medium' ? 'Media' : 'Baja',
-        Categoría: task.category || 'Sin categoría',
-        Completada: task.completed ? 'Sí' : 'No',
-        'Fecha Creación': new Date(task.createdAt).toLocaleDateString()
-      }));
-
-      // Crear el libro y la hoja
-      const worksheet = XLSX.utils.json_to_sheet(formattedTasks);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Tareas');
-
-      // Guardar el archivo
-      XLSX.writeFile(workbook, `tareas_${new Date().toISOString().split('T')[0]}.xlsx`);
-    } catch (error) {
-      console.error('Error al exportar a Excel:', error);
-    }
-  };
-
-  // Import tasks from Excel
-  const importFromExcel = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    try {
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        const bstr = evt.target.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
-
-        // Convertir los datos importados al formato correcto
-        const formattedTasks = data.map(row => ({
-          text: row.Texto || row.text || '',
-          priority: 
-            (row.Prioridad === 'Alta' || row.priority === 'high') ? 'high' :
-            (row.Prioridad === 'Media' || row.priority === 'medium') ? 'medium' : 'low',
-          category: row.Categoría || row.category || '',
-          completed: row.Completada === 'Sí' || row.completed === true,
-          createdAt: Date.now()
-        }));
-
-        // Limpiar la base de datos actual
-        await db.tasks.clear();
-        
-        // Añadir las nuevas tareas
-        await db.tasks.bulkAdd(formattedTasks);
-        
-        // Actualizar el estado
-        const importedTasks = await db.tasks.toArray();
-        setTasks(importedTasks);
-      };
-      reader.readAsBinaryString(file);
-    } catch (error) {
-      console.error('Error al importar desde Excel:', error);
-    }
-  };
-
-  // Añade esta función para actualizar el historial
-  const updateHistory = (newTasks) => {
-    const newHistory = history.slice(0, currentIndex + 1);
-    newHistory.push(newTasks);
-    setHistory(newHistory);
-    setCurrentIndex(newHistory.length - 1);
-  };
-
-  // Añade las funciones de deshacer/rehacer
-  const undo = async () => {
-    if (currentIndex > 0) {
-      const previousTasks = history[currentIndex - 1];
-      await db.tasks.clear();
-      await db.tasks.bulkAdd(previousTasks);
-      setTasks(previousTasks);
-      setCurrentIndex(currentIndex - 1);
-    }
-  };
-
-  const redo = async () => {
-    if (currentIndex < history.length - 1) {
-      const nextTasks = history[currentIndex + 1];
-      await db.tasks.clear();
-      await db.tasks.bulkAdd(nextTasks);
-      setTasks(nextTasks);
-      setCurrentIndex(currentIndex + 1);
-    }
-  };
-
   return (
     <div
       className={clsx(
-        // More responsive classes
-        'flex flex-col items-center px-4 py-4 w-full min-h-screen transition-colors duration-300 md:py-8',
+        'app-container',
+        'flex flex-col items-center w-full transition-colors duration-300',
+        'px-4 py-safe',
         darkMode ? 'text-gray-100 bg-gray-900' : 'text-gray-900 bg-gray-100'
       )}
     >
       {/* Header / Navbar */}
       <header
         className={clsx(
-          'flex justify-between items-center p-4 mb-6 w-full max-w-3xl rounded-2xl',
+          'sticky top-0 z-40 w-full max-w-3xl',
+          'flex flex-col gap-4 p-4 mb-4 rounded-b-2xl shadow-sm',
           darkMode ? 'bg-gray-800' : 'bg-white'
         )}
       >
-        <h1 className="text-2xl font-bold">Tareas Juanjo Llopico</h1>
-
-        <div className="flex gap-2 items-center">
-          <div
-            className={clsx(
-              'flex overflow-hidden items-center px-4 py-2 rounded-full border',
-              darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
-            )}
-          >
-            <span className="text-gray-500">Buscar</span>
-            <Input
-              placeholder="Buscar tarea..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={clsx(
-                'border-0 bg-transparent focus-visible:ring-0 focus-visible:outline-none',
-                darkMode && 'text-white'
-              )}
-            />
-          </div>
+        <div className="flex justify-between items-center">
+          <h1 className="text-xl font-bold">Tareas Juanjo Llopico</h1>
           <Button 
             variant="ghost" 
             onClick={toggleDarkMode}
-            className="flex justify-center items-center p-0 w-10 h-10 rounded-full"
+            className="flex justify-center items-center w-10 h-10 rounded-full"
           >
             {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </Button>
         </div>
+        
+        {/* Barra de búsqueda */}
+        <div
+          className={clsx(
+            'flex items-center px-4 py-2 rounded-full border',
+            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
+          )}
+        >
+          <span className="text-gray-500">Buscar</span>
+          <Input
+            placeholder="Buscar tarea..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className={clsx(
+              'border-0 bg-transparent focus-visible:ring-0',
+              darkMode && 'text-white'
+            )}
+          />
+        </div>
       </header>
 
       {/* Filter & Sort Controls */}
-      <div className="mb-4 space-y-4 w-full max-w-3xl">
+      <div className="sticky top-[72px] z-30 w-full max-w-3xl mb-4 space-y-4 bg-inherit pt-2">
         <div className="flex flex-wrap gap-2">
           {/* Filter by status */}
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="bg-white rounded-full border-gray-200">
+            <SelectTrigger className="flex-1 min-w-[120px] bg-white rounded-full border-gray-200">
               <div className="flex gap-2 items-center">
                 <Filter className="w-4 h-4" />
-                <span>
+                <span className="truncate">
                   {filterStatus === 'all'
                     ? 'Todas'
                     : filterStatus === 'completed'
@@ -456,7 +350,7 @@ function App() {
 
           {/* Sort tasks */}
           <Select value={sortOption} onValueChange={setSortOption}>
-            <SelectTrigger className="w-40 bg-white rounded-full border-gray-200">
+            <SelectTrigger className="flex-1 min-w-[120px] bg-white rounded-full border-gray-200">
               <div className="flex gap-2 items-center">
                 {sortOption === 'priorityAsc' || sortOption === 'alphabeticalAsc' ? (
                   <SortAsc className="w-4 h-4" />
@@ -486,90 +380,43 @@ function App() {
               <SelectItem value="alphabeticalDesc">Alfabético Desc</SelectItem>
             </SelectContent>
           </Select>
-
-          {/* Action buttons */}
-          <div className="flex gap-2 ml-auto">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => setShowDeleteAllDialog(true)}
-              className="text-red-400 rounded-full border-red-100 hover:bg-red-50/50 hover:text-red-500"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-            <Button 
-              variant="outline"
-              size="sm"
-              className="rounded-full" 
-              onClick={exportToExcel}
-            >
-              <Download className="w-4 h-4" />
-            </Button>
-            <label className="rounded-full">
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full"
-                asChild
-              >
-                <span>
-                  <Upload className="w-4 h-4" />
-                  <input
-                    type="file"
-                    accept=".xls,.xlsx"
-                    className="hidden"
-                    onChange={importFromExcel}
-                  />
-                </span>
-              </Button>
-            </label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={undo}
-              disabled={currentIndex <= 0}
-              className="rounded-full"
-              title="Deshacer"
-            >
-              <Undo2 className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={redo}
-              disabled={currentIndex >= history.length - 1}
-              className="rounded-full"
-              title="Rehacer"
-            >
-              <Redo2 className="w-4 h-4" />
-            </Button>
-          </div>
         </div>
       </div>
 
       {/* Tabs for Categories */}
       <div className={clsx(
-        'p-4 mb-2 w-full max-w-3xl rounded-t-2xl shadow-sm',
+        'p-4 mb-2 w-full max-w-3xl rounded-2xl shadow-sm',
         darkMode ? 'bg-gray-800' : 'bg-white'
       )}>
-        <div className="flex overflow-x-auto gap-2 pb-2">
-          <Button
-            variant={categoryFilter === 'all' ? 'default' : 'ghost'}
-            className="rounded-full"
-            onClick={() => setCategoryFilter('all')}
-          >
-            Todas
-          </Button>
-          {categories.map((category, index) => (
-            <Button
-              key={index}
-              variant={categoryFilter === category ? 'default' : 'ghost'}
-              className="whitespace-nowrap rounded-full"
-              onClick={() => setCategoryFilter(category)}
+        <div className="flex overflow-x-auto gap-2 pb-2 ios-segmented-control">
+          <div className="flex p-1 w-full bg-gray-100 rounded-full">
+            <button
+              className={clsx(
+                'flex-1 py-2 px-4 text-sm font-medium rounded-full transition-all duration-200',
+                categoryFilter === 'all' 
+                  ? 'bg-white shadow-sm text-gray-900' 
+                  : 'text-gray-500 hover:text-gray-900'
+              )}
+              onClick={() => setCategoryFilter('all')}
             >
-              {category}
-            </Button>
-          ))}
+              Todas
+            </button>
+            {categories.map((category, index) => (
+              <button
+                key={index}
+                className={clsx(
+                  'flex-1 py-3 px-4 text-sm font-medium rounded-full',
+                  'transition-all duration-200 active:scale-95',
+                  categoryFilter === category 
+                    ? 'bg-white shadow-sm text-gray-900' 
+                    : 'text-gray-500 hover:text-gray-900'
+                )}
+                onClick={() => setCategoryFilter(category)}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -600,7 +447,8 @@ function App() {
       {/* Add New Task */}
       <div
         className={clsx(
-          'flex flex-col gap-2 p-4 mb-4 w-full max-w-3xl rounded-2xl sm:flex-row',
+          'flex flex-col gap-3 p-4 mb-4 w-full max-w-3xl rounded-2xl',
+          'sm:flex-row sm:gap-2',
           darkMode ? 'bg-gray-800' : 'bg-white'
         )}
       >
@@ -672,7 +520,7 @@ function App() {
       </div>
 
       {/* Task List */}
-      <div className="space-y-2 w-full max-w-3xl">
+      <div className="space-y-3 w-full max-w-3xl">
         <AnimatePresence>
           {sortedTasks.map((task) => (
             <motion.div
@@ -684,7 +532,7 @@ function App() {
             >
               <Card
                 className={clsx(
-                  'border-l-4 mb-2 transition-colors duration-200',
+                  'border-l-4 mb-2 transition-all duration-200 active:scale-[0.995]',
                   task.priority === 'high'
                     ? 'border-red-500'
                     : task.priority === 'medium'
@@ -695,10 +543,14 @@ function App() {
               >
                 <CardContent className="flex gap-2 justify-between items-center">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Button variant="ghost" onClick={() => toggleComplete(task.id)}>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => toggleComplete(task.id)}
+                      className="p-2 h-auto active:scale-95 transition-transform"
+                    >
                       <CheckCircle
                         className={clsx(
-                          'h-5 w-5',
+                          'h-7 w-7',
                           task.completed ? 'text-green-500' : 'text-gray-400'
                         )}
                       />
@@ -736,11 +588,19 @@ function App() {
                     </div>
                   </div>
                   <div className="flex gap-2 items-center">
-                    <Button variant="ghost" onClick={() => openEditDialog(task.id)}>
-                      <Edit3 className="w-5 h-5" />
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => openEditDialog(task.id)}
+                      className="p-3 h-auto"
+                    >
+                      <Edit3 className="w-6 h-6" />
                     </Button>
-                    <Button variant="ghost" onClick={() => deleteTask(task.id)}>
-                      <Trash2 className="w-5 h-5" />
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => deleteTask(task.id)}
+                      className="p-3 h-auto"
+                    >
+                      <Trash2 className="w-6 h-6" />
                     </Button>
                   </div>
                 </CardContent>
@@ -753,7 +613,7 @@ function App() {
       {/* Edit Dialog */}
       {editIndex !== null && (
         <Dialog open={true} onOpenChange={() => setEditIndex(null)}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="w-[95vw] max-w-md mx-auto p-6 rounded-2xl">
             <h2 className="mb-4 text-xl font-bold">Editar Tarea</h2>
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
@@ -801,9 +661,9 @@ function App() {
         </Dialog>
       )}
 
-      {/* Añade el diálogo de confirmación (justo antes del Edit Dialog) */}
+      {/* Alert Dialog */}
       <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
-        <AlertDialogContent>
+        <AlertDialogContent className="w-[95vw] max-w-md mx-auto p-6 rounded-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
             <AlertDialogDescription>
