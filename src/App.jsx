@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -18,6 +18,10 @@ import {
   Moon,
   Sun,
   Trash2,
+  Search,
+  Plus,
+  X,
+  FolderPlus
 } from 'lucide-react';
 import { Dialog, DialogContent } from './components/ui/dialog';
 import clsx from 'clsx';
@@ -32,6 +36,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./components/ui/tooltip";
+import { Keyboard } from '@capacitor/keyboard';
 
 function App() {
   // MAIN STATES
@@ -59,17 +65,83 @@ function App() {
   // Añade este estado
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
 
+  // Add this new state
+  const [showSearch, setShowSearch] = useState(false);
+
+  // Add this new state
+  const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
+
+  // Add this new state
+  const [showCategoriesDialog, setShowCategoriesDialog] = useState(false);
+
+  // Primero añadimos un ref para el contenedor de scroll
+  const categoriesScrollRef = useRef(null);
+
+  // Primero añadimos un ref para el diálogo
+  const sheetRef = useRef(null);
+  const startY = useRef(0);
+  const currentY = useRef(0);
+
+  // Actualizar los handlers de deslizamiento
+  const handleTouchStart = (e) => {
+    startY.current = e.touches[0].clientY;
+    currentY.current = startY.current;
+  };
+
+  const handleTouchMove = (e) => {
+    const currentTouch = e.touches[0].clientY;
+    const delta = currentTouch - startY.current;
+    
+    // Solo prevenir el scroll si estamos deslizando hacia abajo
+    if (delta > 0) {
+      e.preventDefault();
+      const sheet = sheetRef.current;
+      if (sheet) {
+        sheet.style.transform = `translateY(${delta}px)`;
+        sheet.style.transition = 'none';
+      }
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    const endY = e.changedTouches[0].clientY;
+    const delta = endY - startY.current;
+    
+    sheet.style.transition = 'transform 0.3s ease-out';
+    
+    if (delta > 100) {
+      // Si se ha deslizado lo suficiente, cerrar
+      sheet.style.transform = 'translateY(100%)';
+      setTimeout(() => setShowNewTaskDialog(false), 300);
+    } else {
+      // Si no, volver a la posición original
+      sheet.style.transform = 'translateY(0)';
+    }
+  };
+
   // LOAD tasks, categories & theme from localStorage on first render
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Cargar tareas
+        // Cargar categorías primero
+        const storedCategories = await db.categories.toArray();
+        if (storedCategories.length === 0) {
+          // Si no hay categorías, añadir algunas por defecto
+          const defaultCategories = ['Personal', 'Trabajo', 'Compras'];
+          await Promise.all(
+            defaultCategories.map(cat => db.categories.add({ name: cat }))
+          );
+          setCategories(defaultCategories);
+        } else {
+          setCategories(storedCategories.map(cat => cat.name));
+        }
+
+        // Luego cargar tareas
         const storedTasks = await db.tasks.toArray();
         setTasks(storedTasks);
-
-        // Cargar categorías
-        const storedCategories = await db.categories.orderBy('name').toArray();
-        setCategories(storedCategories.map(cat => cat.name));
       } catch (error) {
         console.error('Error al cargar datos:', error);
       }
@@ -90,6 +162,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('darkMode', darkMode);
   }, [darkMode]);
+
+  // Añadir este useEffect al inicio del componente
+  useEffect(() => {
+    const initKeyboard = async () => {
+      await Keyboard.setResizeMode({ mode: 'none' });
+      await Keyboard.setScroll({ isDisabled: true });
+    };
+    
+    initKeyboard();
+  }, []);
 
   // HANDLERS
   const addTask = async () => {
@@ -175,10 +257,6 @@ function App() {
     }
   };
 
-  const toggleDarkMode = () => {
-    setDarkMode((prev) => !prev);
-  };
-
   // Add new category
   const handleAddCategory = async () => {
     if (newCategory.trim() && !categories.includes(newCategory)) {
@@ -189,6 +267,16 @@ function App() {
       } catch (error) {
         console.error('Error al añadir categoría:', error);
       }
+    }
+  };
+
+  // Delete category
+  const handleDeleteCategory = async (category) => {
+    try {
+      await db.categories.delete(category);
+      setCategories(prev => prev.filter(c => c !== category));
+    } catch (error) {
+      console.error('Error al eliminar categoría:', error);
     }
   };
 
@@ -276,103 +364,134 @@ function App() {
   // En el JSX, reemplazamos las variables directas por la función
   const { total: totalTasks, completed: completedTasks, percentage: completionPercentage } = getProgressStats();
 
-  return (
-    <div
-      className={clsx(
-        'app-container',
-        'flex flex-col items-center w-full transition-colors duration-300',
-        'px-4 py-safe',
-        darkMode ? 'text-gray-100 bg-gray-900' : 'text-gray-900 bg-gray-100'
-      )}
-    >
-      {/* Header / Navbar */}
-      <header
-        className={clsx(
-          'sticky top-0 z-40 w-full max-w-3xl',
-          'flex flex-col gap-4 p-4 mb-4 rounded-b-2xl shadow-sm',
-          darkMode ? 'bg-gray-800' : 'bg-white'
-        )}
-      >
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Tareas Juanjo Llopico</h1>
-          <Button 
-            variant="ghost" 
-            onClick={toggleDarkMode}
-            className="flex justify-center items-center w-10 h-10 rounded-full"
-          >
-            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </Button>
-        </div>
-        
-        {/* Barra de búsqueda */}
-        <div
-          className={clsx(
-            'flex items-center px-4 py-2 rounded-full border',
-            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
-          )}
-        >
-          <span className="text-gray-500">Buscar</span>
-          <Input
-            placeholder="Buscar tarea..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className={clsx(
-              'border-0 bg-transparent focus-visible:ring-0',
-              darkMode && 'text-white'
-            )}
-          />
-        </div>
-      </header>
+  // En el componente App, añadir esta función
+  const handleCategoryScroll = (e) => {
+    const container = e.currentTarget;
+    const isTouch = e.type.startsWith('touch');
+    
+    // Prevenir el scroll vertical en móvil
+    if (isTouch && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      return;
+    }
 
-      {/* Filter & Sort Controls */}
-      <div className="sticky top-[72px] z-30 w-full max-w-3xl mb-4 space-y-4 bg-inherit pt-2">
-        <div className="flex flex-wrap gap-2">
-          {/* Filter by status */}
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="flex-1 min-w-[120px] bg-white rounded-full border-gray-200">
+    // Calcular la nueva posición
+    const scrollLeft = container.scrollLeft;
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    
+    // Aplicar el scroll con animación suave
+    container.style.scrollBehavior = 'smooth';
+    container.scrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + e.deltaX));
+  };
+
+  const toggleDarkMode = () => {
+    setDarkMode((prev) => !prev);
+  };
+
+  return (
+    <TooltipProvider>
+      <div className={clsx(
+        'app-container',
+        'flex flex-col items-center w-full max-w-[100vw]',
+        'transition-colors duration-300',
+        darkMode ? 'text-gray-100 bg-gray-900' : 'text-gray-900 bg-gray-100'
+      )}>
+        <header className={clsx(
+          'sticky top-0 z-40 w-full',
+          'flex justify-between items-center',
+          darkMode ? 'bg-gray-800/90' : 'bg-white/90',
+          'backdrop-blur-sm',
+          'pt-[calc(env(safe-area-inset-top)+1rem)]', // Aumentamos el padding superior
+          'pb-3 px-4'
+        )}>
+          <div className="header-inner">
+            <div className="flex-1" /> {/* Espaciador izquierdo */}
+            <div className="flex gap-4 items-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    className="p-2 w-10 h-10 rounded-full"
+                    onClick={() => setShowCategoriesDialog(true)}
+                  >
+                    <FolderPlus className="w-5 h-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Gestionar Categorías
+                </TooltipContent>
+              </Tooltip>
+              <Button
+                variant="ghost"
+                className="p-2 w-10 h-10 rounded-full"
+                onClick={() => setShowSearch(true)}
+              >
+                <Search className="w-5 h-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                className="p-2 w-10 h-10 rounded-full"
+                onClick={toggleDarkMode}
+              >
+                {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        {/* Search Overlay (appears when showSearch is true) */}
+        {showSearch && (
+          <div className="fixed inset-0 z-50 bg-black/50">
+            <div className={clsx(
+              'fixed top-0 right-0 left-0',
+              'pt-[calc(env(safe-area-inset-top)+1rem)]', // Añadimos padding-top para el notch
+              'px-4 pb-4',
+              'bg-white dark:bg-gray-800'
+            )}>
               <div className="flex gap-2 items-center">
-                <Filter className="w-4 h-4" />
-                <span className="truncate">
-                  {filterStatus === 'all'
-                    ? 'Todas'
-                    : filterStatus === 'completed'
-                    ? 'Completadas'
-                    : 'Pendientes'}
-                </span>
+                <Input
+                  placeholder="Buscar tarea..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="flex-1"
+                  autoFocus
+                />
+                <Button variant="ghost" onClick={() => setShowSearch(false)}>
+                  Cerrar
+                </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filter and Sort Options */}
+        <div className="relative z-[100] flex justify-between items-center gap-2 w-full max-w-3xl px-4 mb-2">
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="min-w-[120px] bg-white/90 backdrop-blur-sm rounded-full">
+              <Filter className="mr-2 w-4 h-4" />
+              <span className="truncate">
+                {filterStatus === 'all' ? 'Todas' :
+                 filterStatus === 'completed' ? 'Completadas' : 'Pendientes'}
+              </span>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="z-[9999]">
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="completed">Completadas</SelectItem>
               <SelectItem value="pending">Pendientes</SelectItem>
             </SelectContent>
           </Select>
 
-          {/* Sort tasks */}
           <Select value={sortOption} onValueChange={setSortOption}>
-            <SelectTrigger className="flex-1 min-w-[120px] bg-white rounded-full border-gray-200">
-              <div className="flex gap-2 items-center">
-                {sortOption === 'priorityAsc' || sortOption === 'alphabeticalAsc' ? (
-                  <SortAsc className="w-4 h-4" />
-                ) : sortOption === 'priorityDesc' || sortOption === 'alphabeticalDesc' ? (
-                  <SortDesc className="w-4 h-4" />
-                ) : (
-                  <SortAsc className="w-4 h-4 text-gray-400" />
-                )}
-                <span>
-                  {sortOption === 'none'
-                    ? 'Sin Orden'
-                    : sortOption === 'priorityAsc'
-                    ? 'Prioridad Asc'
-                    : sortOption === 'priorityDesc'
-                    ? 'Prioridad Desc'
-                    : sortOption === 'alphabeticalAsc'
-                    ? 'Alfabético Asc'
-                    : 'Alfabético Desc'}
-                </span>
-              </div>
+            <SelectTrigger className="min-w-[120px] bg-white/90 backdrop-blur-sm rounded-full">
+              {sortOption.includes('Asc') ? 
+                <SortAsc className="mr-2 w-4 h-4" /> : 
+                <SortDesc className="mr-2 w-4 h-4" />
+              }
+              <span className="truncate">
+                {sortOption === 'none' ? 'Sin orden' :
+                 sortOption.includes('priority') ? 'Prioridad' : 'Alfabético'}
+              </span>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="z-[9999]">
               <SelectItem value="none">Sin Orden</SelectItem>
               <SelectItem value="priorityAsc">Prioridad Asc</SelectItem>
               <SelectItem value="priorityDesc">Prioridad Desc</SelectItem>
@@ -381,307 +500,402 @@ function App() {
             </SelectContent>
           </Select>
         </div>
-      </div>
 
-      {/* Tabs for Categories */}
-      <div className={clsx(
-        'p-4 mb-2 w-full max-w-3xl rounded-2xl shadow-sm',
-        darkMode ? 'bg-gray-800' : 'bg-white'
-      )}>
-        <div className="flex overflow-x-auto gap-2 pb-2 ios-segmented-control">
-          <div className="flex p-1 w-full bg-gray-100 rounded-full">
-            <button
-              className={clsx(
-                'flex-1 py-2 px-4 text-sm font-medium rounded-full transition-all duration-200',
-                categoryFilter === 'all' 
-                  ? 'bg-white shadow-sm text-gray-900' 
-                  : 'text-gray-500 hover:text-gray-900'
-              )}
+        {/* Categories List */}
+        <div className="categories-wrapper">
+          <div
+            ref={categoriesScrollRef}
+            className="categories-scroll"
+            onScroll={handleCategoryScroll}
+          >
+            <Button
+              variant={categoryFilter === 'all' ? 'default' : 'outline'}
+              className="category-button"
               onClick={() => setCategoryFilter('all')}
             >
               Todas
-            </button>
-            {categories.map((category, index) => (
-              <button
-                key={index}
-                className={clsx(
-                  'flex-1 py-3 px-4 text-sm font-medium rounded-full',
-                  'transition-all duration-200 active:scale-95',
-                  categoryFilter === category 
-                    ? 'bg-white shadow-sm text-gray-900' 
-                    : 'text-gray-500 hover:text-gray-900'
-                )}
+            </Button>
+            {categories.map((category) => (
+              <Button
+                key={category}
+                variant={categoryFilter === category ? 'default' : 'outline'}
+                className="category-button"
                 onClick={() => setCategoryFilter(category)}
               >
                 {category}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Add / Manage Categories */}
-      <div
-        className={clsx(
-          'p-4 mb-4 w-full max-w-3xl rounded-2xl shadow-sm',
-          darkMode ? 'bg-gray-800' : 'bg-white'
-        )}
-      >
-        <h2 className="mb-2 text-lg font-semibold">Gestionar Categorías</h2>
-        <div className="flex gap-2">
-          <Input
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleAddCategory();
-              }
-            }}
-            placeholder="Nueva categoría"
-            className={clsx(darkMode && 'bg-gray-700 text-white', 'flex-1')}
-          />
-          <Button onClick={handleAddCategory}>Añadir Categoría</Button>
-        </div>
-      </div>
-
-      {/* Add New Task */}
-      <div
-        className={clsx(
-          'flex flex-col gap-3 p-4 mb-4 w-full max-w-3xl rounded-2xl',
-          'sm:flex-row sm:gap-2',
-          darkMode ? 'bg-gray-800' : 'bg-white'
-        )}
-      >
-        <Input
-          placeholder="Añadir nueva tarea"
-          value={taskText}
-          onChange={(e) => setTaskText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              addTask();
-            }
-          }}
-          className={clsx(
-            'flex-1 rounded-full',
-            darkMode ? 'text-white bg-gray-700' : 'bg-gray-50'
-          )}
-        />
-        <Select value={priority} onValueChange={setPriority}>
-          <SelectTrigger className="w-32 bg-white rounded-full border-gray-200">
-            <span>{priority.charAt(0).toUpperCase() + priority.slice(1)}</span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="high">Alta</SelectItem>
-            <SelectItem value="medium">Media</SelectItem>
-            <SelectItem value="low">Baja</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-          <SelectTrigger className="w-36 bg-white rounded-full border-gray-200">
-            <span>{selectedCategory || 'Sin categoría'}</span>
-          </SelectTrigger>
-          <SelectContent>
-            {categories.length === 0 && (
-              <div className="p-2 text-gray-500">No hay categorías creadas</div>
-            )}
-            {categories.map((cat, i) => (
-              <SelectItem key={i} value={cat}>
-                {cat}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button 
-          onClick={addTask} 
-          className="text-white bg-gray-900 rounded-full hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600"
-        >
-          Añadir
-        </Button>
-      </div>
-
-      {/* Progress Bar */}
-      <div
-        className={clsx(
-          'flex flex-col gap-4 items-center p-4 mb-4 w-full max-w-3xl rounded-2xl shadow-sm sm:flex-row',
-          darkMode ? 'bg-gray-800' : 'bg-white'
-        )}
-      >
-        <div className="flex-1">
-          <div className="mb-1 font-semibold">
-            {completedTasks} / {totalTasks} tareas {categoryFilter !== 'all' ? `de ${categoryFilter}` : ''} completadas
-          </div>
-          <div className="w-full h-3 bg-gray-200 rounded-full">
-            <div
-              className="h-3 bg-green-500 rounded-full"
-              style={{ width: `${completionPercentage}%` }}
-            ></div>
-          </div>
-        </div>
-      </div>
-
-      {/* Task List */}
-      <div className="space-y-3 w-full max-w-3xl">
-        <AnimatePresence>
-          {sortedTasks.map((task) => (
-            <motion.div
-              key={task.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <Card
-                className={clsx(
-                  'border-l-4 mb-2 transition-all duration-200 active:scale-[0.995]',
-                  task.priority === 'high'
-                    ? 'border-red-500'
-                    : task.priority === 'medium'
-                    ? 'border-yellow-500'
-                    : 'border-green-500',
-                  task.completed ? 'bg-gray-200' : darkMode ? 'bg-gray-800' : 'bg-white'
-                )}
-              >
-                <CardContent className="flex gap-2 justify-between items-center">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => toggleComplete(task.id)}
-                      className="p-2 h-auto active:scale-95 transition-transform"
-                    >
-                      <CheckCircle
-                        className={clsx(
-                          'h-7 w-7',
-                          task.completed ? 'text-green-500' : 'text-gray-400'
-                        )}
-                      />
-                    </Button>
-                    <div className="flex flex-col">
-                      <span
-                        className={clsx(
-                          task.completed && 'line-through text-gray-500',
-                          !task.completed && 'text-gray-800',
-                          darkMode && !task.completed && 'text-white'
-                        )}
-                      >
-                        {task.text}
-                      </span>
-                      {/* Priority Color Text */}
-                      <span
-                        className={clsx(
-                          'text-sm font-semibold',
-                          task.priority === 'high' && 'text-red-500',
-                          task.priority === 'medium' && 'text-yellow-500',
-                          task.priority === 'low' && 'text-green-500'
-                        )}
-                      >
-                        Prioridad:{' '}
-                        {task.priority === 'high'
-                          ? 'Alta'
-                          : task.priority === 'medium'
-                          ? 'Media'
-                          : 'Baja'}
-                      </span>
-                      {/* Category display */}
-                      <span className="text-sm text-gray-500">
-                        Categoría: {task.category || 'Sin categoría'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => openEditDialog(task.id)}
-                      className="p-3 h-auto"
-                    >
-                      <Edit3 className="w-6 h-6" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => deleteTask(task.id)}
-                      className="p-3 h-auto"
-                    >
-                      <Trash2 className="w-6 h-6" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-
-      {/* Edit Dialog */}
-      {editIndex !== null && (
-        <Dialog open={true} onOpenChange={() => setEditIndex(null)}>
-          <DialogContent className="w-[95vw] max-w-md mx-auto p-6 rounded-2xl">
-            <h2 className="mb-4 text-xl font-bold">Editar Tarea</h2>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Texto de la tarea</label>
+        {/* Categories Dialog */}
+        <Dialog open={showCategoriesDialog} onOpenChange={setShowCategoriesDialog}>
+          <DialogContent className={clsx(
+            'p-6 mx-auto max-w-md rounded-2xl w-[95vw]',
+            'z-[9999]'
+          )}>
+            <h2 className="mb-4 text-xl font-bold">Gestionar Categorías</h2>
+            <div className="space-y-4">
+              <div className="flex gap-2">
                 <Input
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
+                  placeholder="Nueva categoría..."
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  className="flex-1"
                 />
+                <Button onClick={handleAddCategory}>
+                  Añadir
+                </Button>
               </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Prioridad</label>
-                <Select 
-                  value={editPriority} 
-                  onValueChange={setEditPriority}
-                  className="relative z-50"
-                >
-                  <SelectTrigger className="w-full bg-white rounded-md border-gray-200">
-                    <span>
-                      {editPriority === 'high' ? 'Alta' :
-                       editPriority === 'medium' ? 'Media' : 'Baja'}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent 
-                    className="z-50"
+              <div className="space-y-2">
+                {categories.map((category) => (
+                  <div
+                    key={category}
+                    className="flex justify-between items-center p-2 bg-gray-50 rounded-lg"
                   >
-                    <SelectItem value="high">Alta</SelectItem>
-                    <SelectItem value="medium">Media</SelectItem>
-                    <SelectItem value="low">Baja</SelectItem>
-                  </SelectContent>
-                </Select>
+                    {category}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1 h-auto text-red-500 hover:text-red-600"
+                      onClick={() => handleDeleteCategory(category)}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
-              <div className="flex gap-2 justify-end mt-2">
-                <Button variant="outline" onClick={() => setEditIndex(null)}>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Progress Bar */}
+        <div className={clsx(
+          'sticky top-[120px] z-20 w-full max-w-3xl px-4',
+          'transition-opacity duration-200',
+          tasks.length === 0 && 'opacity-0'
+        )}>
+          <div className={clsx(
+            'flex flex-col p-3 rounded-2xl shadow-sm',
+            darkMode ? 'bg-gray-800/90' : 'bg-white/90',
+            'backdrop-blur-sm'
+          )}>
+            <div className="mb-2 text-sm font-medium">
+              {completedTasks} / {totalTasks} tareas {categoryFilter !== 'all' ? `de ${categoryFilter}` : ''} completadas
+            </div>
+            <div className="overflow-hidden h-2 bg-gray-200 rounded-full">
+              <div
+                className="h-full bg-green-500 transition-all duration-500"
+                style={{ width: `${completionPercentage}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Task List */}
+        <div className="space-y-2 w-full max-w-3xl">
+          <AnimatePresence>
+            {sortedTasks.map((task) => (
+              <motion.div
+                key={task.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <Card
+                  className={clsx(
+                    'border-l-4 transition-all duration-200',
+                    'active:scale-[0.99]',
+                    task.priority === 'high' ? 'border-red-500' :
+                    task.priority === 'medium' ? 'border-yellow-500' : 'border-green-500',
+                    task.completed 
+                      ? 'bg-gray-100/80 dark:bg-gray-800/50'
+                      : darkMode ? 'bg-gray-800' : 'bg-white'
+                  )}
+                >
+                  <CardContent className="p-2.5">
+                    <div className="flex gap-2 items-center">
+                      <Button 
+                        variant="ghost" 
+                        onClick={() => toggleComplete(task.id)}
+                        className="p-1 h-auto rounded-full transition-transform active:scale-90"
+                      >
+                        <CheckCircle
+                          className={clsx(
+                            'h-5 w-5',
+                            task.completed ? 'text-green-500' : 'text-gray-400'
+                          )}
+                        />
+                      </Button>
+                      <div className="flex-1 min-w-0">
+                        <p className={clsx(
+                          'text-sm font-medium truncate',
+                          task.completed && 'line-through text-gray-400 dark:text-gray-500',
+                          !task.completed && darkMode && 'text-white'
+                        )}>
+                          {task.text}
+                        </p>
+                        <div className="flex gap-2 items-center text-xs">
+                          <span className={clsx(
+                            'font-medium',
+                            task.priority === 'high' && 'text-red-500',
+                            task.priority === 'medium' && 'text-yellow-500',
+                            task.priority === 'low' && 'text-green-500',
+                            task.completed && 'opacity-60'
+                          )}>
+                            {task.priority === 'high' ? 'Alta' :
+                             task.priority === 'medium' ? 'Media' : 'Baja'}
+                          </span>
+                          <span className="text-gray-400">•</span>
+                          <span className={clsx(
+                            'text-gray-500 truncate',
+                            task.completed && 'opacity-60'
+                          )}>
+                            {task.category || 'Sin categoría'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button 
+                          variant="ghost" 
+                          onClick={() => openEditDialog(task.id)}
+                          className="p-1 h-auto rounded-full"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          onClick={() => deleteTask(task.id)}
+                          className="p-1 h-auto text-red-500 rounded-full"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {/* Edit Dialog */}
+        {editIndex !== null && (
+          <Dialog open={true} onOpenChange={() => setEditIndex(null)}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto p-6 rounded-2xl">
+              <h2 className="mb-4 text-xl font-bold">Editar Tarea</h2>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Texto de la tarea</label>
+                  <Input
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Prioridad</label>
+                  <Select 
+                    value={editPriority} 
+                    onValueChange={setEditPriority}
+                    className="relative z-50"
+                  >
+                    <SelectTrigger className="w-full bg-white rounded-md border-gray-200">
+                      <span>
+                        {editPriority === 'high' ? 'Alta' :
+                         editPriority === 'medium' ? 'Media' : 'Baja'}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent 
+                      className="z-50"
+                    >
+                      <SelectItem value="high">Alta</SelectItem>
+                      <SelectItem value="medium">Media</SelectItem>
+                      <SelectItem value="low">Baja</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2 justify-end mt-2">
+                  <Button variant="outline" onClick={() => setEditIndex(null)}>
+                    Cancelar
+                  </Button>
+                  <Button 
+                    onClick={saveEdit}
+                    className="text-white bg-gray-900 hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600"
+                  >
+                    Guardar
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Alert Dialog */}
+        <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+          <AlertDialogContent className="w-[95vw] max-w-md mx-auto p-6 rounded-2xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Esta acción eliminará todas las tareas permanentemente.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={clearAllTasks}
+                className="text-white bg-red-400 hover:bg-red-500"
+              >
+                Eliminar Todo
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Floating Action Button for New Task */}
+        <Button
+          className={clsx(
+            'fixed right-4 bottom-4 w-14 h-14 rounded-full',
+            'flex justify-center items-center',
+            'text-white bg-gray-900 shadow-lg',
+            'hover:bg-gray-800 dark:bg-gray-700',
+            'z-50'
+          )}
+          onClick={() => setShowNewTaskDialog(true)}
+        >
+          <Plus className="w-6 h-6" />
+        </Button>
+
+        {/* New Task Dialog */}
+        <Dialog 
+          open={showNewTaskDialog} 
+          onOpenChange={(open) => {
+            setShowNewTaskDialog(open);
+            document.body.classList.toggle('dialog-open', open);
+          }}
+        >
+          <DialogContent 
+            ref={sheetRef}
+            className={clsx(
+              'dialog-content',
+              'mx-auto w-full sm:w-[95vw] sm:max-w-md',
+              'p-4 sm:p-6',
+              'overflow-y-auto'
+            )}
+          >
+            <div 
+              className="touch-handle"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            />
+            
+            <h2 className="mb-6 text-xl font-bold">Nueva Tarea</h2>
+            <div className="flex flex-col gap-6">
+              <Input
+                placeholder="¿Qué necesitas hacer?"
+                value={taskText}
+                onChange={(e) => setTaskText(e.target.value)}
+                className="py-3 text-base"
+              />
+              
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Prioridad
+                  </label>
+                  <Select value={priority} onValueChange={setPriority}>
+                    <SelectTrigger className="w-full h-12 rounded-xl backdrop-blur-sm bg-white/90">
+                      <div className="flex gap-2 items-center">
+                        <div className={clsx(
+                          'w-3 h-3 rounded-full',
+                          priority === 'high' ? 'bg-red-500' :
+                          priority === 'medium' ? 'bg-yellow-500' : 'bg-green-500'
+                        )} />
+                        <span className="text-base">
+                          {priority === 'high' ? 'Alta' :
+                           priority === 'medium' ? 'Media' : 'Baja'}
+                        </span>
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent 
+                      position="popper" 
+                      className="w-full min-w-[200px]"
+                      sideOffset={5}
+                    >
+                      <SelectItem value="high" className="py-3 text-base">
+                        <div className="flex gap-2 items-center">
+                          <div className="w-3 h-3 bg-red-500 rounded-full" />
+                          Alta
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="medium" className="py-3 text-base">
+                        <div className="flex gap-2 items-center">
+                          <div className="w-3 h-3 bg-yellow-500 rounded-full" />
+                          Media
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="low" className="py-3 text-base">
+                        <div className="flex gap-2 items-center">
+                          <div className="w-3 h-3 bg-green-500 rounded-full" />
+                          Baja
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Categoría
+                  </label>
+                  <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                    <SelectTrigger className="w-full h-12 rounded-xl backdrop-blur-sm bg-white/90">
+                      <span className="text-base truncate">
+                        {selectedCategory || 'Sin categoría'}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent 
+                      position="popper" 
+                      className="w-full min-w-[200px]"
+                      sideOffset={5}
+                    >
+                      <SelectItem value="" className="py-3 text-base">
+                        Sin categoría
+                      </SelectItem>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat} className="py-3 text-base">
+                          {cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowNewTaskDialog(false)}
+                  className="flex-1 h-12 text-base"
+                >
                   Cancelar
                 </Button>
                 <Button 
-                  onClick={saveEdit}
-                  className="text-white bg-gray-900 hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600"
+                  onClick={() => {
+                    addTask();
+                    setShowNewTaskDialog(false);
+                  }}
+                  className="flex-1 h-12 text-base text-white bg-gray-900"
                 >
-                  Guardar
+                  Añadir
                 </Button>
               </div>
             </div>
           </DialogContent>
         </Dialog>
-      )}
-
-      {/* Alert Dialog */}
-      <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
-        <AlertDialogContent className="w-[95vw] max-w-md mx-auto p-6 rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acción eliminará todas las tareas permanentemente.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={clearAllTasks}
-              className="text-white bg-red-400 hover:bg-red-500"
-            >
-              Eliminar Todo
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
 

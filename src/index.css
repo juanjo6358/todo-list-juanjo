@@ -2,32 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Ajustes básicos para iOS */
+/* Ajustes básicos */
 html {
   -webkit-tap-highlight-color: transparent;
-  height: 100vh;
 }
 
 body {
   min-height: 100vh;
-  overflow: auto;
-  /* Prevenir el rebote en iOS de manera más compatible */
-  position: fixed;
-  width: 100%;
-  height: 100%;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+  background-color: var(--body-bg);
 }
 
-/* Mejorar la legibilidad del texto */
+/* Mejorar la legibilidad */
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Prevenir el zoom no deseado en inputs en iOS */
-input,
-select,
-textarea {
-  font-size: 16px;
+/* Prevenir zoom en inputs */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  select,
+  textarea,
+  input {
+    font-size: 16px;
+  }
 }
 
 /* Ocultar scrollbars de manera más compatible */

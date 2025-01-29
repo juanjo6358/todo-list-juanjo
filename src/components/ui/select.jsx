@@ -93,7 +93,8 @@ export function SelectContent({ children, onValueChange, className }) {
 
   return (
     <div className={clsx(
-      'absolute z-10 mt-1 w-full rounded-lg border bg-white shadow-lg overflow-hidden',
+      'absolute z-[9999]',
+      'mt-1 w-full rounded-lg border bg-white shadow-lg overflow-hidden',
       'border-gray-200',
       className
     )}>
